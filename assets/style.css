@@ -1,0 +1,38 @@
+/* Dashboard styling. Dash loads every file in /assets automatically.
+   Gestalt notes: enclosure = bordered panels; proximity = status + reset grouped;
+   similarity = one colour map shared by all views; hierarchy = hero panel is largest. */
+:root {
+  --bg: #f4f3ef; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+  --line: #d9d8d2; --accent: #2a78d6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font-family: Inter, Arial, sans-serif; }
+.page { max-width: 1280px; margin: 0 auto; padding: 20px 24px 32px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+h2 { font-size: 14px; margin: 0; }
+.sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); }
+
+.top { display: flex; justify-content: space-between; align-items: flex-end;
+       gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.controls { display: flex; align-items: center; gap: 12px; }
+.status { font-size: 12px; color: var(--ink-2); }
+.btn { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+       border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.btn:hover { border-color: var(--accent); }
+
+.legend-row { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px;
+              font-size: 12px; color: var(--ink-2); }
+.key { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+         padding: 14px 16px 10px; display: flex; flex-direction: column; min-width: 0; }
+.hero { border-color: var(--accent); border-width: 2px; height: 330px; margin-bottom: 20px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.half { height: 560px; }
+.panel > div:last-child { flex: 1; min-height: 0; }
+
+@media (max-width: 900px) {
+  .row { grid-template-columns: 1fr; }
+}

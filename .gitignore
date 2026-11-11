@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+# raw Kaggle files are large; users download them if they want to rebuild the data
+data/raw/
