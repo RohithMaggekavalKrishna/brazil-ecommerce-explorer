@@ -46,6 +46,20 @@ HUES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6"]
 COLORS = {c: HUES[i] for i, c in enumerate(CATEGORIES[:-1])}
 COLORS["other"] = "#8a8985"        # neutral grey = "everything else"
 
+# Second encoding channel: a fixed marker symbol per category (same order as the hues), so
+# categories stay distinguishable without relying on colour alone. Used by both charts and the chips.
+SHAPES = ["circle", "square", "diamond", "triangle-up", "cross", "x"]
+SYMBOLS = {c: SHAPES[i] for i, c in enumerate(CATEGORIES[:-1])}
+SYMBOLS["other"] = "circle-open"    # hollow = "everything else"
+
+
+def marker_outline(cat, filled_line):
+    """Marker outline: hollow symbols draw their stroke in the category colour,
+    filled ones keep the given outline (e.g. a light rim around bubbles)."""
+    if SYMBOLS[cat].endswith("-open"):
+        return dict(color=COLORS[cat], width=2)
+    return filled_line
+
 MAX_ORDERS = df.groupby(["category_group", "customer_state"])["order_id"].nunique().max()
 FONT = dict(family="Inter, Arial, sans-serif", size=12, color="#0b0b0b")
 GRID = "#e4e3df"
@@ -92,6 +106,26 @@ def apply_filters(data, months=None, pairs=None, states=None, cats=None):
     return data
 
 
+def month_label(month):
+    """'2017-11' -> 'Nov 2017'."""
+    return pd.Period(month, freq="M").strftime("%b %Y")
+
+
+def fmt_money(value):
+    """Compact Brazilian-real amount for headlines: R$ 979k, R$ 1.2M."""
+    if value >= 1e6:
+        return f"R$ {value / 1e6:.1f}M"
+    if value >= 1e3:
+        return f"R$ {value / 1e3:.0f}k"
+    return f"R$ {value:,.0f}"
+
+
+def state_revenue(sel):
+    """Revenue per state, largest first, under the filters View 3 uses (everything except states)."""
+    d = apply_filters(df, sel["months"], sel["pairs"], None, sel["cats"])
+    return d.groupby("customer_state")["price"].sum().sort_values(ascending=False)
+
+
 def base_layout(**kw):
     """Shared figure styling: light, thin gridlines, no chart junk (data-ink ratio)."""
     layout = dict(
@@ -111,6 +145,39 @@ def style_axes(fig, xtitle=None, ytitle=None):
 
 
 # --------------------------------------------------------------------------- figures
+def month_runs(months):
+    """Group selected months into runs of consecutive months: ['2017-01', '2017-02', '2017-05']
+    -> [('2017-01', '2017-02'), ('2017-05', '2017-05')]."""
+    idx = sorted(MONTHS.index(m) for m in months if m in MONTHS)
+    runs, start = [], None
+    for k, i in enumerate(idx):
+        if start is None:
+            start = i
+        if k == len(idx) - 1 or idx[k + 1] != i + 1:
+            runs.append((MONTHS[start], MONTHS[i]))
+            start = None
+    return runs
+
+
+def add_month_band(fig, months):
+    """View 1: make the month brush visible. Selected months get a light shaded band (behind the
+    lines) and a label above the plot; with nothing selected, a hint says how to brush."""
+    label_style = dict(xref="paper", yref="paper", x=0, y=1, xanchor="left", yanchor="bottom",
+                       yshift=4, showarrow=False)
+    runs = month_runs(months)
+    if not runs:
+        fig.add_annotation(text="<i>Drag across months to filter</i>",
+                           font=dict(size=11, color="#52514e"), **label_style)
+        return
+    half_month = pd.Timedelta(days=15)                  # band covers each month's whole slot
+    for first, last in runs:
+        fig.add_vrect(x0=pd.Timestamp(first) - half_month, x1=pd.Timestamp(last) + half_month,
+                      fillcolor="#2a78d6", opacity=0.10, line_width=0, layer="below")
+    parts = [month_label(a) if a == b else f"{month_label(a)} to {month_label(b)}" for a, b in runs]
+    fig.add_annotation(text="<b>Selected:</b> " + ", ".join(parts),
+                       font=dict(size=11, color="#14407a"), **label_style)
+
+
 def figure_trend(sel, log_scale=False):
     """View 1: revenue per month, one line per category (Y position = revenue, X = month).
     log_scale=True switches the y axis to log so small categories are not flattened by "other"."""
@@ -125,7 +192,8 @@ def figure_trend(sel, log_scale=False):
         y = g[cat].replace(0, np.nan) if log_scale else g[cat]   # log axis cannot show 0
         fig.add_trace(go.Scatter(
             x=MONTHS, y=y, name=cat, mode="lines+markers",
-            line=dict(color=COLORS[cat], width=2), marker=dict(color=COLORS[cat], size=7),
+            line=dict(color=COLORS[cat], width=2),
+            marker=dict(color=COLORS[cat], size=8, symbol=SYMBOLS[cat], line=marker_outline(cat, dict(width=0))),
             selectedpoints=picked or None,
             selected=dict(marker=dict(opacity=1, size=10)),
             unselected=dict(marker=dict(opacity=DIM if picked else 1)),
@@ -156,8 +224,9 @@ def figure_trend(sel, log_scale=False):
                                xref="x", yref="y", text=c.replace("_", " "), showarrow=False,
                                xanchor="left", xshift=12, yshift=placed[i] - px[i],
                                font=dict(size=11, color="#0b0b0b"))
+    add_month_band(fig, sel["months"])
     # The chips above the charts are the legend (and the category filter), so no built-in legend.
-    fig.update_layout(base_layout(selectdirection="h", showlegend=False, margin=dict(l=56, r=150, t=8, b=44),
+    fig.update_layout(base_layout(selectdirection="h", showlegend=False, margin=dict(l=56, r=150, t=26, b=44),
                                   uirevision=f'{"log" if log_scale else "linear"}-{sel.get("rev", 0)}'))
     style_axes(fig, ytitle="Revenue (R$, log scale)" if log_scale else "Revenue (R$)")
     fig.update_yaxes(tickformat="~s", type="log" if log_scale else "linear", range=yrange, autorange=False)
@@ -181,7 +250,8 @@ def figure_scatter(sel, xmode="days"):
         fig.add_trace(go.Scatter(
             x=s[xmode], y=s["score"], name=cat, mode="markers",
             customdata=s[["category_group", "customer_state", "orders", "revenue"]].to_numpy(),
-            marker=dict(color=COLORS[cat], opacity=0.8, line=dict(color="#fcfcfb", width=1.5),
+            marker=dict(color=COLORS[cat], opacity=0.8, symbol=SYMBOLS[cat],
+                        line=marker_outline(cat, dict(color="#fcfcfb", width=1.5)),
                         size=s["orders"], sizemode="area",
                         sizeref=2.0 * MAX_ORDERS / (34 ** 2), sizemin=4),
             selectedpoints=picked if sel["pairs"] else None,
@@ -257,9 +327,11 @@ def figure_states(sel):
 
 # ---------------------------------------------------------------------------- layout
 def panel(title, subtitle, graph_id, cls, extra=None, bottom=None):
-    """A bordered card (Gestalt enclosure) holding one view. `extra` = optional header control."""
+    """A bordered card (Gestalt enclosure) holding one view. `extra` = optional header control.
+    The insight line (id "insight-<graph_id>") is filled by the render callback."""
     return html.Section(className=f"panel {cls}", children=[
         html.Div(className="panel-head", children=[html.H2(title)] + ([extra] if extra is not None else [])),
+        html.P(id=f"insight-{graph_id}", className="insight"),
         html.P(subtitle, className="sub"),
         dcc.Graph(id=graph_id, config={"displaylogo": False, "responsive": True,
                                        "modeBarButtonsToRemove": ["autoScale2d", "lasso2d"]},
@@ -279,9 +351,10 @@ app.layout = html.Main(className="page", children=[
             html.Button("Reset selection", id="reset", n_clicks=0, className="btn"),
         ]),
     ]),
-    # Category chips: legend (colour key) AND filter. Click to show only that category in all views.
+    # Category chips: legend (colour + symbol key) AND filter. Click to show only that category in all views.
     html.Div(className="legend-row", children=[
-        html.Button([html.Span(className="swatch", style={"background": COLORS[c]}), c],
+        html.Button([html.Span(className="swatch", style={"background": COLORS[c]}),
+                     html.Span(className=f"sym sym-{SYMBOLS[c]}"), c],
                     id={"type": "chip", "cat": c}, n_clicks=0, className="chip",
                     title=f"Show only {c} (click again to remove)")
         for c in CATEGORIES]),
@@ -372,8 +445,7 @@ def summarize(sel):
 
 def ranked_states(sel, n=5):
     """Ranked list of the top states by revenue under the current filters (fixes map area bias)."""
-    d = apply_filters(df, sel["months"], sel["pairs"], None, sel["cats"])
-    rev = d.groupby("customer_state")["price"].sum().sort_values(ascending=False)
+    rev = state_revenue(sel)
     if rev.empty:
         return ""
     total = rev.sum()
@@ -383,10 +455,65 @@ def ranked_states(sel, n=5):
     return [html.Span("Top states by revenue share:", className="rank-label")] + items
 
 
+# Insight headlines: one computed fact per view, from the same filtered data the view shows,
+# so they change with every selection. Nothing here is hardcoded.
+FAST_DAYS, SLOW_DAYS = 7, 21          # delivery-time groups compared in View 2's headline
+
+
+def insight_trend(sel):
+    """View 1: peak month and its revenue (inside the brushed months, if any)."""
+    d = apply_filters(df, sel["months"], sel["pairs"], sel["states"], sel["cats"])
+    if d.empty:
+        return "No revenue under the current filters."
+    monthly = d.groupby("order_month")["price"].sum()
+    peak = monthly.idxmax()
+    if len(monthly) == 1:
+        return f"Revenue in {month_label(peak)} was {fmt_money(monthly.max())}"
+    where = "Within the selected months, revenue" if sel["months"] else "Revenue"
+    return f"{where} peaked in {month_label(peak)} at {fmt_money(monthly.max())}"
+
+
+def insight_scatter(sel):
+    """View 2: average review of fast (<= 7 days) vs slow (> 21 days) deliveries, per order."""
+    d = apply_filters(df, sel["months"], None, sel["states"], sel["cats"])
+    orders = d.drop_duplicates("order_id")
+    fast = orders.loc[orders["delivery_days"] <= FAST_DAYS, "review_score"]
+    slow = orders.loc[orders["delivery_days"] > SLOW_DAYS, "review_score"]
+    if len(fast) < MIN_ORDERS_PER_POINT or len(slow) < MIN_ORDERS_PER_POINT:
+        return (f"Too few orders delivered within {FAST_DAYS} days or after {SLOW_DAYS} days "
+                "to compare reviews under this filter.")
+    return (f"Orders delivered within {FAST_DAYS} days average {fast.mean():.1f} stars "
+            f"vs {slow.mean():.1f} after {SLOW_DAYS} days")
+
+
+def _join_names(codes):
+    """['SP', 'RJ', 'MG'] -> 'SP, RJ and MG'."""
+    return codes[0] if len(codes) == 1 else ", ".join(codes[:-1]) + f" and {codes[-1]}"
+
+
+def insight_states(sel):
+    """View 3: share of revenue from the top 3 states, or from the selected states if any."""
+    rev = state_revenue(sel)
+    if rev.empty:
+        return "No revenue under the current filters."
+    if sel["states"]:
+        picked = [s for s in rev.index if s in sel["states"]]          # largest first
+        if not picked:
+            return "The selected states have no revenue under the current filters."
+        names = _join_names(picked) if len(picked) <= 3 else f"The {len(picked)} selected states"
+        verb = "makes" if len(picked) == 1 else "make"
+        return f"{names} {verb} up {rev[picked].sum() / rev.sum():.0%} of revenue"
+    top = list(rev.index[:3])
+    if len(top) == 1:
+        return f"All revenue comes from {top[0]}"
+    return f"{_join_names(top)} make up {rev.iloc[:3].sum() / rev.sum():.0%} of revenue"
+
+
 @app.callback(
     Output("v1", "figure"), Output("v2", "figure"), Output("v3", "figure"),
     Output("status", "children"), Output({"type": "chip", "cat": ALL}, "className"),
     Output("summary", "children"), Output("rank", "children"),
+    Output("insight-v1", "children"), Output("insight-v2", "children"), Output("insight-v3", "children"),
     Input("sel", "data"), Input("yscale", "value"), Input("xmode", "value"),
 )
 def render(sel, yscale, xmode):
@@ -396,7 +523,8 @@ def render(sel, yscale, xmode):
               f"Selected: {n[3]} categories, {n[0]} months, {n[1]} category-state points, {n[2]} states")
     chips = ["chip" + (" on" if c in sel["cats"] else " off" if sel["cats"] else "") for c in CATEGORIES]
     return (figure_trend(sel, yscale == "log"), figure_scatter(sel, xmode), figure_states(sel),
-            status, chips, summarize(sel), ranked_states(sel))
+            status, chips, summarize(sel), ranked_states(sel),
+            insight_trend(sel), insight_scatter(sel), insight_states(sel))
 
 
 if __name__ == "__main__":

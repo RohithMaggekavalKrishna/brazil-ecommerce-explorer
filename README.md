@@ -66,6 +66,9 @@ order (latest), English category names, top 6 categories plus "other", and Jan 2
 | What is "other"? | Note under the chips: categories outside the top 6 by revenue plus products with no category |
 | Could not select several states independently | Click toggles a state on or off; Reset clears all |
 | Clicking a scatter point showed a flat zero line for an unrelated category | Categories with no data under the current filters are no longer drawn |
+| Needs insight headlines | Each panel has a one-line takeaway computed from the currently filtered data (peak month and revenue; reviews for orders delivered within 7 days vs after 21 days; top 3 states' revenue share, or the selected states' share) |
+| Hues hard to tell apart | Each category also has its own marker symbol (circle, square, diamond, triangle, cross, x; hollow circle for "other"), shown in the line chart, the scatter and the chips |
+| Month brush not obvious | Selected months are shaded on View 1 with a "Selected: Jan 2018 to Mar 2018" label; with nothing selected, a "Drag across months to filter" hint is shown |
 
 Further additions: direct end-labels on the line chart; an item-price option on the scatter (price vs satisfaction); a summary line of orders, revenue, average review and delivery time; a ranked top-5 state list under the map to offset the map's area bias; explicit axis ranges so the Linear/Log toggle never leaves a stale axis.
 

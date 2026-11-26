@@ -28,7 +28,7 @@ h2 { font-size: 14px; margin: 0; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
          padding: 14px 16px 10px; display: flex; flex-direction: column; min-width: 0; }
-.hero { border-color: var(--accent); border-width: 2px; height: 330px; margin-bottom: 20px; }
+.hero { border-color: var(--accent); border-width: 2px; height: 380px; margin-bottom: 20px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .half { height: 560px; }
 .panel > .graph { flex: 1; min-height: 0; }
@@ -44,8 +44,20 @@ h2 { font-size: 14px; margin: 0; }
 .chip:hover { border-color: var(--accent); }
 .chip.on { border-color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--ink); }
 .chip.off { opacity: 0.45; }
+
+/* Marker-symbol key inside each chip (matches the chart markers; shapes drawn with clip-path). */
+.sym { width: 10px; height: 10px; display: inline-block; flex: none; background: var(--ink-2); }
+.sym-circle { border-radius: 50%; }
+.sym-diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.sym-triangle-up { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.sym-cross, .sym-x { clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 65%, 65% 65%,
+                                        65% 100%, 35% 100%, 35% 65%, 0 65%, 0 35%, 35% 35%); }
+.sym-x { transform: rotate(45deg); }
+.sym-circle-open { background: transparent; border: 2px solid var(--ink-2); border-radius: 50%; }
 .note { margin: -6px 0 12px; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+/* Insight headline: one computed takeaway per panel, above the how-to subtitle. */
+.insight { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--ink); }
 .toggle { font-size: 12px; color: var(--ink-2); }
 .toggle label { margin-left: 10px; cursor: pointer; }
 
