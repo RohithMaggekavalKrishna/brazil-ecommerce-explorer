@@ -7,6 +7,10 @@ Interactive dashboard built with **Plotly Dash** on the Olist Brazilian E-Commer
 
 Requires Python 3.9+.
 
+**Getting the code.** With Git: `git clone https://github.com/RohithMaggekavalKrishna/brazil-ecommerce-explorer.git olist_dashboard`.
+Without Git: on the GitHub repo page click **Code → Download ZIP**, unzip it, and use the unzipped
+folder in place of `olist_dashboard` below.
+
 ```bash
 cd olist_dashboard
 python -m venv .venv
@@ -15,7 +19,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open http://127.0.0.1:8050 in a browser. The cleaned data (`data/olist_clean.csv`) and map outlines are
+Open http://127.0.0.1:8050 in a browser. The first page load takes a few seconds while the data
+and charts are prepared; after that, interactions are quick. The cleaned data (`data/olist_clean.csv`) and map outlines are
 included, so nothing needs to be downloaded. The map uses no background tiles, so it works offline.
 
 ## How to use it

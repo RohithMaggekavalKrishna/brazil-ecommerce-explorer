@@ -17,6 +17,9 @@ h2 { font-size: 14px; margin: 0; }
        gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .controls { display: flex; align-items: center; gap: 12px; }
 .status { font-size: 12px; color: var(--ink-2); }
+.status-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.hint, .toggle-caption { font-size: 11px; color: var(--ink-2); font-style: italic; }
+.toggle-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .btn { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
        border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 .btn:hover { border-color: var(--accent); }
@@ -25,6 +28,8 @@ h2 { font-size: 14px; margin: 0; }
               font-size: 12px; color: var(--ink-2); }
 .key { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+/* "other" is drawn dashed + hollow in the charts, so its key is a dashed outline too. */
+.swatch-other { background: transparent; border: 2px dashed #8a8985; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
          padding: 14px 16px 10px; display: flex; flex-direction: column; min-width: 0; }
@@ -63,6 +68,20 @@ h2 { font-size: 14px; margin: 0; }
 
 .summary { margin: 0 0 12px; padding: 8px 12px; font-size: 13px; background: var(--surface);
            border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
-.rank { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 2px 2px; font-size: 12px; color: var(--ink-2); }
+/* Under the map: ranked state buttons on the left, the second Reset on the right. */
+.map-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* View 2 bubble-size key: circles sized in Python to match the chart's bubbles. */
+.size-key { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 6px 2px 2px;
+            font-size: 12px; color: var(--ink-2); }
+.key-label { color: var(--ink); font-weight: 600; }
+.size-item { display: inline-flex; align-items: center; gap: 5px; }
+.size-dot { display: inline-block; border-radius: 50%; background: #b9b8b2; border: 1px solid #8a8985; }
+
+.rank { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 6px 2px 2px; font-size: 12px; color: var(--ink-2); }
 .rank-label { color: var(--ink); font-weight: 600; }
-.rank-item.on { color: var(--ink); font-weight: 600; text-decoration: underline; }
+/* "Top states" entries are buttons that toggle the state (same as a map click). */
+.rank-item { font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer; padding: 2px 8px;
+             border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.rank-item:hover { border-color: var(--accent); color: var(--ink); }
+.rank-item.on { color: #ffffff; background: #14407a; border-color: #14407a; font-weight: 600; }

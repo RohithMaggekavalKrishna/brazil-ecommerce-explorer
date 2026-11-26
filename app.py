@@ -61,6 +61,12 @@ def marker_outline(cat, filled_line):
     return filled_line
 
 MAX_ORDERS = df.groupby(["category_group", "customer_state"])["order_id"].nunique().max()
+BUBBLE_SIZEREF = 2.0 * MAX_ORDERS / (34 ** 2)   # Plotly area sizing: largest bubble ~24 px across
+BUBBLE_SIZEMIN = 4
+SIZE_KEY_ORDERS = [1_000, 5_000, 20_000]     # reference bubbles in View 2's size key
+# Fixed y range for View 2 = the whole 1-5 review scale, so the axis never rescales when filters
+# change (some single-month bubbles average below 1.5 stars, so a tighter range would hide them).
+REVIEW_RANGE = [0.9, 5.1]
 FONT = dict(family="Inter, Arial, sans-serif", size=12, color="#0b0b0b")
 GRID = "#e4e3df"
 DIM = 0.28                          # opacity of unselected marks
@@ -192,7 +198,8 @@ def figure_trend(sel, log_scale=False):
         y = g[cat].replace(0, np.nan) if log_scale else g[cat]   # log axis cannot show 0
         fig.add_trace(go.Scatter(
             x=MONTHS, y=y, name=cat, mode="lines+markers",
-            line=dict(color=COLORS[cat], width=2),
+            # "other" = dashed line + hollow marker, so it never looks like a faded/unselected series
+            line=dict(color=COLORS[cat], width=2, dash="dash" if cat == "other" else "solid"),
             marker=dict(color=COLORS[cat], size=8, symbol=SYMBOLS[cat], line=marker_outline(cat, dict(width=0))),
             selectedpoints=picked or None,
             selected=dict(marker=dict(opacity=1, size=10)),
@@ -253,7 +260,7 @@ def figure_scatter(sel, xmode="days"):
             marker=dict(color=COLORS[cat], opacity=0.8, symbol=SYMBOLS[cat],
                         line=marker_outline(cat, dict(color="#fcfcfb", width=1.5)),
                         size=s["orders"], sizemode="area",
-                        sizeref=2.0 * MAX_ORDERS / (34 ** 2), sizemin=4),
+                        sizeref=BUBBLE_SIZEREF, sizemin=BUBBLE_SIZEMIN),
             selectedpoints=picked if sel["pairs"] else None,
             selected=dict(marker=dict(opacity=1)),
             unselected=dict(marker=dict(opacity=DIM)),
@@ -262,10 +269,39 @@ def figure_scatter(sel, xmode="days"):
                            + XHOVER[xmode] + "<br>Avg review: %{y:.2f} / 5<br>"
                            "Orders: %{customdata[2]:,}<br>Revenue: R$ %{customdata[3]:,.0f}<extra></extra>"),
         ))
+    # Trend line: least-squares fit of review vs x over the bubbles currently shown. Lines-only and
+    # hover-free, so it can never be clicked or box-selected (it has no category/state to select).
+    if len(g) >= 3 and g[xmode].nunique() > 1:
+        slope, intercept = np.polyfit(g[xmode], g["score"], 1)
+        xs = np.array([g[xmode].min(), g[xmode].max()])
+        fig.add_trace(go.Scatter(x=xs, y=slope * xs + intercept, mode="lines", hoverinfo="skip",
+                                 line=dict(color="#0b0b0b", width=1.5, dash="dash"), showlegend=False))
+        unit = "day" if xmode == "days" else "R$ 100"
+        per = slope if xmode == "days" else slope * 100
+        # Bottom-left corner: low reviews at short delivery times are rare, so it stays clear of bubbles.
+        fig.add_annotation(xref="paper", yref="paper", x=0.01, y=0.01, xanchor="left", yanchor="bottom",
+                           showarrow=False, font=dict(size=11, color="#52514e"),
+                           text=f"- - trend: {per:+.2f} stars per extra {unit}")
     fig.update_layout(base_layout(margin=dict(l=56, r=16, t=8, b=44), uirevision=f'keep-{sel.get("rev", 0)}'))
     style_axes(fig, xtitle=XTITLE[xmode], ytitle="Average review score (1-5)")
     fig.update_xaxes(showgrid=True, gridcolor=GRID)
+    fig.update_yaxes(range=REVIEW_RANGE, autorange=False, tickvals=[1, 2, 3, 4, 5])
     return fig
+
+
+def bubble_px(orders):
+    """Diameter in pixels Plotly draws for a bubble of `orders` (same area sizing as View 2)."""
+    return max(BUBBLE_SIZEMIN, (orders / BUBBLE_SIZEREF) ** 0.5)
+
+
+def size_key():
+    """View 2's bubble-size key: reference circles drawn at the exact sizes the chart uses."""
+    items = [html.Span("Bubble size = orders:", className="key-label")]
+    for n in SIZE_KEY_ORDERS:
+        d = f"{bubble_px(n):.1f}px"
+        items.append(html.Span(className="size-item", children=[
+            html.Span(className="size-dot", style={"width": d, "height": d}), f"{n:,}"]))
+    return html.Div(items, className="size-key")
 
 
 def figure_states(sel):
@@ -347,13 +383,17 @@ app.layout = html.Main(className="page", children=[
         html.Div([html.H1("Olist e-commerce: sales, delivery and satisfaction"),
                   html.P("Brazil, Jan 2017 to Aug 2018 - delivered orders only", className="sub")]),
         html.Div(className="controls", children=[            # proximity: status + reset together
-            html.Span(id="status", className="status"),
+            html.Div(className="status-wrap", children=[
+                html.Span(id="status", className="status"),
+                html.Span("Double-click a chart to clear its selection", className="hint"),
+            ]),
             html.Button("Reset selection", id="reset", n_clicks=0, className="btn"),
         ]),
     ]),
     # Category chips: legend (colour + symbol key) AND filter. Click to show only that category in all views.
     html.Div(className="legend-row", children=[
-        html.Button([html.Span(className="swatch", style={"background": COLORS[c]}),
+        html.Button([html.Span(className="swatch swatch-other" if c == "other" else "swatch",
+                               style={"background": COLORS[c]} if c != "other" else {}),
                      html.Span(className=f"sym sym-{SYMBOLS[c]}"), c],
                     id={"type": "chip", "cat": c}, n_clicks=0, className="chip",
                     title=f"Show only {c} (click again to remove)")
@@ -365,19 +405,27 @@ app.layout = html.Main(className="page", children=[
     panel("1. Monthly revenue by category",
           "Drag horizontally to brush a month range. The other views filter to it.",
           "v1", "hero",
-          extra=dcc.RadioItems(id="yscale", options=[{"label": "Linear", "value": "linear"},
-                                                     {"label": "Log", "value": "log"}],
-                               value="linear", inline=True, className="toggle")),
+          extra=html.Div(className="toggle-wrap", children=[
+              dcc.RadioItems(id="yscale", options=[{"label": "Linear", "value": "linear"},
+                                                   {"label": "Log", "value": "log"}],
+                             value="linear", inline=True, className="toggle"),
+              html.Span("Log makes small categories readable", className="toggle-caption"),
+          ])),
     html.Div(className="row", children=[
         panel("2. What drives review scores?",
               "One bubble per category and state (5+ orders). Size = orders. Drag to select.",
-              "v2", "half",
+              "v2", "half", bottom=size_key(),
               extra=dcc.RadioItems(id="xmode", options=[{"label": "Delivery time", "value": "days"},
                                                         {"label": "Item price", "value": "price"}],
                                    value="days", inline=True, className="toggle")),
         panel("3. Revenue by customer state",
               "Darker = more revenue (log scale). Click a state to select it, click again to unselect; drag a box for several.",
-              "v3", "half", bottom=html.Div(id="rank", className="rank")),
+              "v3", "half", bottom=html.Div(className="map-foot", children=[
+                  html.Div(id="rank", className="rank"),
+                  # Second Reset next to the map (same action as the main one) so the user
+                  # does not have to travel back to the top of the page after selecting states.
+                  html.Button("Reset selection", id="reset-map", n_clicks=0, className="btn"),
+              ])),
     ]),
     dcc.Store(id="sel", data=EMPTY_SEL),
 ])
@@ -400,13 +448,20 @@ def _points(event, key):
     Output("sel", "data"), Output("v3", "clickData"),
     Input("v1", "selectedData"), Input("v2", "selectedData"), Input("v3", "selectedData"),
     Input("v3", "clickData"), Input({"type": "chip", "cat": ALL}, "n_clicks"),
-    Input("reset", "n_clicks"), State("sel", "data"),
+    Input({"type": "rank-state", "state": ALL}, "n_clicks"),
+    Input("reset", "n_clicks"), Input("reset-map", "n_clicks"), State("sel", "data"),
     prevent_initial_call=True,
 )
-def update_selection(s1, s2, s3, click3, _chips, _reset, current):
+def update_selection(s1, s2, s3, click3, _chips, _ranks, _reset, _reset_map, current):
     """Record what the user just did; reset clears everything."""
     prop = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
-    if prop == "reset.n_clicks":
+    tid = ctx.triggered_id
+    is_rank = isinstance(tid, dict) and tid.get("type") == "rank-state"
+    if is_rank and not ctx.triggered[0]["value"]:
+        # The ranked list is rebuilt on every render; new buttons (n_clicks=0) also fire this
+        # callback. Ignore those, otherwise each render would trigger another render.
+        return no_update, no_update
+    if prop in ("reset.n_clicks", "reset-map.n_clicks"):     # either Reset button
         # A new "rev" changes every figure's uirevision, so Plotly also wipes the drawn selection boxes.
         return dict(EMPTY_SEL, rev=current.get("rev", 0) + 1), None
     sel = dict(current)
@@ -421,15 +476,27 @@ def update_selection(s1, s2, s3, click3, _chips, _reset, current):
         # same state again still fires the callback.
         if not click3 or not click3.get("points"):
             return no_update, no_update
-        code = click3["points"][0]["location"]
-        sel["states"] = ([s for s in sel["states"] if s != code] if code in sel["states"]
-                         else sel["states"] + [code])
+        sel["states"] = toggle(sel["states"], click3["points"][0]["location"])
         return sel, None
-    elif prop.startswith("{"):                      # a category chip: toggle that category
-        cat = ctx.triggered_id["cat"]
-        sel["cats"] = ([c for c in sel["cats"] if c != cat] if cat in sel["cats"]
-                       else sel["cats"] + [cat])
+    elif is_rank:                                   # a "Top states" button: same as a map click
+        sel["states"] = toggle(sel["states"], tid["state"])
+    elif isinstance(tid, dict) and tid.get("type") == "chip":   # a category chip: toggle that category
+        sel["cats"] = toggle(sel["cats"], tid["cat"])
     return sel, no_update
+
+
+def toggle(items, item):
+    """Add `item` to the list, or remove it if it is already there."""
+    return [x for x in items if x != item] if item in items else items + [item]
+
+
+def status_text(sel):
+    """Plain-language list of the active filters, e.g. 'Filters: 2 categories, 6 months, 1 state'."""
+    words = (("cats", "category", "categories"), ("months", "month", "months"),
+             ("pairs", "bubble", "bubbles"), ("states", "state", "states"))
+    parts = [f"{len(sel[key])} {one if len(sel[key]) == 1 else many}"
+             for key, one, many in words if sel[key]]
+    return "Filters: " + ", ".join(parts) if parts else "No filters yet"
 
 
 def summarize(sel):
@@ -449,8 +516,10 @@ def ranked_states(sel, n=5):
     if rev.empty:
         return ""
     total = rev.sum()
-    items = [html.Span(className="rank-item" + (" on" if s in sel["states"] else ""),
-                       children=f"{i}. {s} {v / total:.0%}")
+    # Each entry is a button that toggles its state, exactly like clicking it on the map.
+    items = [html.Button(f"{i}. {s} {v / total:.0%}", id={"type": "rank-state", "state": s}, n_clicks=0,
+                         className="rank-item" + (" on" if s in sel["states"] else ""),
+                         title=f"Select {STATE_NAMES.get(s, s)} (click again to unselect)")
              for i, (s, v) in enumerate(rev.head(n).items(), 1)]
     return [html.Span("Top states by revenue share:", className="rank-label")] + items
 
@@ -518,9 +587,7 @@ def insight_states(sel):
 )
 def render(sel, yscale, xmode):
     """Redraw all views from the shared selection state."""
-    n = [len(sel["months"]), len(sel["pairs"]), len(sel["states"]), len(sel["cats"])]
-    status = ("No selection - click or drag on a chart to filter the others" if not any(n) else
-              f"Selected: {n[3]} categories, {n[0]} months, {n[1]} category-state points, {n[2]} states")
+    status = status_text(sel)
     chips = ["chip" + (" on" if c in sel["cats"] else " off" if sel["cats"] else "") for c in CATEGORIES]
     return (figure_trend(sel, yscale == "log"), figure_scatter(sel, xmode), figure_states(sel),
             status, chips, summarize(sel), ranked_states(sel),
