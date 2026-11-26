@@ -31,8 +31,26 @@ h2 { font-size: 14px; margin: 0; }
 .hero { border-color: var(--accent); border-width: 2px; height: 330px; margin-bottom: 20px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .half { height: 560px; }
-.panel > div:last-child { flex: 1; min-height: 0; }
+.panel > .graph { flex: 1; min-height: 0; }
 
 @media (max-width: 900px) {
   .row { grid-template-columns: 1fr; }
 }
+
+/* Category chips = legend + filter (look clickable: button, border, hover). */
+.chip { font: inherit; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 999px; cursor: pointer; color: var(--ink);
+        border: 1px solid var(--line); background: var(--surface); }
+.chip:hover { border-color: var(--accent); }
+.chip.on { border-color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--ink); }
+.chip.off { opacity: 0.45; }
+.note { margin: -6px 0 12px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.toggle { font-size: 12px; color: var(--ink-2); }
+.toggle label { margin-left: 10px; cursor: pointer; }
+
+.summary { margin: 0 0 12px; padding: 8px 12px; font-size: 13px; background: var(--surface);
+           border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.rank { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 2px 2px; font-size: 12px; color: var(--ink-2); }
+.rank-label { color: var(--ink); font-weight: 600; }
+.rank-item.on { color: var(--ink); font-weight: 600; text-decoration: underline; }

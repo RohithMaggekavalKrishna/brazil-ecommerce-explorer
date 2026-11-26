@@ -1,4 +1,4 @@
-# Olist E-Commerce Dashboard (Mini-Project 2, Week 7 prototype)
+# Olist E-Commerce Dashboard (Mini-Project 2, Final)
 
 Interactive dashboard built with **Plotly Dash** on the Olist Brazilian E-Commerce dataset
 (Kaggle, `olistbr/brazilian-ecommerce`). Author: Rohith Maggekaval Krishna.
@@ -22,11 +22,15 @@ included, so nothing needs to be downloaded. The map uses no background tiles, s
 
 | Action | Result |
 | --- | --- |
+| Click a **category chip** (top row) | Shows only that category in all three views; click several to compare, click again to remove |
 | Drag horizontally on **View 1** | Brushes a month range; Views 2 and 3 filter to those months |
-| Drag a box on **View 2** | Selects category/state bubbles; Views 1 and 3 filter to them |
-| Click a state (shift-click for several) or drag a box on the **View 3** map | Selects states; Views 1 and 2 filter to them |
+| **Linear / Log** toggle on View 1 | Switches the revenue axis; log keeps small categories readable next to "other" |
+| **Delivery time / Item price** toggle on View 2 | Changes the scatter x axis, so the same bubbles answer "does delivery time or price relate to reviews?" |
+| Drag a box on **View 2** or click a bubble | Selects category/state bubbles; Views 1 and 3 filter to them |
+| Click a state on the **View 3** map | Toggles that state on or off (click again to unselect); click several for a multi-state view, or drag a box |
 | Hover any mark | Tooltip with details |
-| **Reset selection** | Clears all selections |
+| Summary line and ranked list | One-line totals and the top 5 states by revenue share for whatever is currently selected |
+| **Reset selection** | Clears all selections, including category chips |
 
 Each view is filtered by the selections made in the *other two* views and highlights its own.
 
@@ -51,6 +55,19 @@ python prep_data.py data/raw
 
 Cleaning steps are listed at the top of `prep_data.py`: delivered orders only, one review per
 order (latest), English category names, top 6 categories plus "other", and Jan 2017 to Aug 2018.
+
+## Changes after peer feedback
+
+| Feedback | Change |
+| --- | --- |
+| Category row looked clickable but was not; the line legend was clickable but did not look it | The chips are now real buttons that filter every view; the built-in legend is removed |
+| Could not filter categories in the scatter plot | Chips filter all views, including the scatter |
+| "other" skews the line chart | Linear / Log toggle on View 1 |
+| What is "other"? | Note under the chips: categories outside the top 6 by revenue plus products with no category |
+| Could not select several states independently | Click toggles a state on or off; Reset clears all |
+| Clicking a scatter point showed a flat zero line for an unrelated category | Categories with no data under the current filters are no longer drawn |
+
+Further additions: animated transitions (300 ms) when filters change; direct end-labels on the line chart; an item-price option on the scatter (price vs satisfaction); a summary line of orders, revenue, average review and delivery time; a ranked top-5 state list under the map to offset the map's area bias; explicit axis ranges so the Linear/Log toggle never leaves a stale axis.
 
 ## Known gaps (planned for the final)
 

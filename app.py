@@ -1,5 +1,5 @@
 """
-app.py - Olist e-commerce dashboard (Mini-Project 2, Week 7 prototype)
+app.py - Olist e-commerce dashboard (Mini-Project 2, final)
 
 Three coordinated views, linked by cross-filtering:
   View 1  Monthly revenue by category   (line)    - brush a month range
@@ -23,11 +23,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, ctx, dcc, html
+from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
 
 # --------------------------------------------------------------------------- data
 DATA_FILE = Path(__file__).parent / "data" / "olist_clean.csv"
 GEO_FILE = Path(__file__).parent / "data" / "brazil_states.geojson"
+XHOVER = {"days": "Avg delivery: %{x:.1f} days", "price": "Avg item price: R$ %{x:,.0f}"}
+XTITLE = {"days": "Average delivery time (days)", "price": "Average item price (R$)"}
+LINE_PLOT_PX = 190                # approx. plot height of View 1, used to space end-labels
 MIN_ORDERS_PER_POINT = 5          # hide category/state points with fewer orders (noisy means)
 
 df = pd.read_csv(DATA_FILE)
@@ -72,12 +75,14 @@ LABEL_POS = {f["id"]: _label_position(f) for f in GEOJSON["features"]}
 # Sequential single-hue ramp, light -> dark (lightness decreases monotonically = greyscale safe).
 REVENUE_RAMP = ["#e8f0fb", "#b4cdf0", "#6fa3e3", "#2a78d6", "#14407a"]
 
-EMPTY_SEL = {"months": [], "pairs": [], "states": []}
+EMPTY_SEL = {"months": [], "pairs": [], "states": [], "cats": []}
 
 
 # ------------------------------------------------------------------- filtering helpers
-def apply_filters(data, months=None, pairs=None, states=None):
+def apply_filters(data, months=None, pairs=None, states=None, cats=None):
     """Filter the item-level table by whichever selections are active."""
+    if cats:
+        data = data[data["category_group"].isin(cats)]
     if months:
         data = data[data["order_month"].isin(months)]
     if pairs:
@@ -95,6 +100,7 @@ def base_layout(**kw):
         hoverlabel=dict(bgcolor="#ffffff", font=dict(family=FONT["family"], size=12, color="#0b0b0b")),
         legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=11)),
         uirevision="keep",          # keep zoom/brush state when figures are re-rendered
+        transition=dict(duration=300, easing="cubic-in-out"),   # animated updates when filters change
     )
     layout.update(kw)
     return layout
@@ -106,34 +112,66 @@ def style_axes(fig, xtitle=None, ytitle=None):
 
 
 # --------------------------------------------------------------------------- figures
-def figure_trend(sel):
-    """View 1: revenue per month, one line per category (Y position = revenue, X = month)."""
-    d = apply_filters(df, pairs=sel["pairs"], states=sel["states"])
+def figure_trend(sel, log_scale=False):
+    """View 1: revenue per month, one line per category (Y position = revenue, X = month).
+    log_scale=True switches the y axis to log so small categories are not flattened by "other"."""
+    d = apply_filters(df, pairs=sel["pairs"], states=sel["states"], cats=sel["cats"])
     g = (d.groupby(["order_month", "category_group"])["price"].sum()
          .unstack().reindex(index=MONTHS, columns=CATEGORIES).fillna(0))
     picked = [i for i, m in enumerate(MONTHS) if m in sel["months"]]
     fig = go.Figure()
     for cat in CATEGORIES:
+        if g[cat].sum() == 0:
+            continue    # no revenue under the current filters: draw nothing, not a flat zero line
+        y = g[cat].replace(0, np.nan) if log_scale else g[cat]   # log axis cannot show 0
         fig.add_trace(go.Scatter(
-            x=MONTHS, y=g[cat], name=cat, mode="lines+markers",
+            x=MONTHS, y=y, name=cat, mode="lines+markers",
             line=dict(color=COLORS[cat], width=2), marker=dict(color=COLORS[cat], size=7),
             selectedpoints=picked or None,
             selected=dict(marker=dict(opacity=1, size=10)),
             unselected=dict(marker=dict(opacity=DIM if picked else 1)),
             hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>Revenue: R$ %{y:,.0f}<extra></extra>",
         ))
-    fig.update_layout(base_layout(selectdirection="h"))
-    style_axes(fig, ytitle="Revenue (R$)")
-    fig.update_yaxes(tickformat="~s")
+    # Explicit axis ranges: stops the end-labels from stretching the x axis, and keeps the y axis
+    # correct when the Linear/Log toggle changes its type during an animated update.
+    allv = g[[c for c in CATEGORIES if g[c].sum() > 0]].to_numpy().ravel() if g.to_numpy().any() else np.array([1.0])
+    if log_scale:
+        yrange = [float(np.log10(allv[allv > 0].min())) - 0.1, float(np.log10(allv.max())) + 0.1]
+    else:
+        yrange = [-0.04 * float(allv.max()), 1.08 * float(allv.max())]
+    # Direct end-labels (no legend lookup needed). Labels are nudged apart so they never overlap.
+    ends = [(c, g[c].iloc[-1]) for c in CATEGORIES if g[c].sum() > 0 and g[c].iloc[-1] > 0]
+    if ends:
+        tf = np.log10 if log_scale else (lambda v: v)
+        vals = [tf(v) for _, v in ends]
+        px = [(v - yrange[0]) / (yrange[1] - yrange[0]) * LINE_PLOT_PX for v in vals]   # approx. pixel height
+        order = sorted(range(len(ends)), key=lambda i: px[i])
+        placed = {}
+        for rank, i in enumerate(order):                                # enforce >= 15 px spacing
+            placed[i] = max(px[i], placed[order[rank - 1]] + 15) if rank else px[i]
+        moved = [placed[i] - px[i] for i in placed if placed[i] - px[i] > 0.5]
+        recentre = sum(moved) / len(moved) / 2 if moved else 0.0      # spread labels both ways, not only up
+        placed = {i: placed[i] - recentre for i in placed}
+        for i, (c, v) in enumerate(ends):
+            fig.add_annotation(x=MONTHS[-1], y=float(np.log10(v)) if log_scale else float(v),
+                               xref="x", yref="y", text=c.replace("_", " "), showarrow=False,
+                               xanchor="left", xshift=12, yshift=placed[i] - px[i],
+                               font=dict(size=11, color="#0b0b0b"))
+    # The chips above the charts are the legend (and the category filter), so no built-in legend.
+    fig.update_layout(base_layout(selectdirection="h", showlegend=False, margin=dict(l=56, r=150, t=8, b=44),
+                                  uirevision="log" if log_scale else "linear"))
+    style_axes(fig, ytitle="Revenue (R$, log scale)" if log_scale else "Revenue (R$)")
+    fig.update_yaxes(tickformat="~s", type="log" if log_scale else "linear", range=yrange, autorange=False)
+    fig.update_xaxes(range=["2016-12-15", "2018-09-15"])
     return fig
 
 
-def figure_scatter(sel):
+def figure_scatter(sel, xmode="days"):
     """View 2: one bubble per category x state. X = avg delivery days, Y = avg review,
     size = order count, hue = category."""
-    d = apply_filters(df, months=sel["months"], states=sel["states"])
+    d = apply_filters(df, months=sel["months"], states=sel["states"], cats=sel["cats"])
     g = (d.groupby(["category_group", "customer_state"])
-         .agg(days=("delivery_days", "mean"), score=("review_score", "mean"),
+         .agg(days=("delivery_days", "mean"), price=("price", "mean"), score=("review_score", "mean"),
               orders=("order_id", "nunique"), revenue=("price", "sum"))
          .reset_index())
     g = g[g["orders"] >= MIN_ORDERS_PER_POINT]
@@ -142,7 +180,7 @@ def figure_scatter(sel):
         s = g[g["category_group"] == cat].reset_index(drop=True)
         picked = [i for i, st in enumerate(s["customer_state"]) if f"{cat}|{st}" in sel["pairs"]]
         fig.add_trace(go.Scatter(
-            x=s["days"], y=s["score"], name=cat, mode="markers",
+            x=s[xmode], y=s["score"], name=cat, mode="markers",
             customdata=s[["category_group", "customer_state", "orders", "revenue"]].to_numpy(),
             marker=dict(color=COLORS[cat], opacity=0.8, line=dict(color="#fcfcfb", width=1.5),
                         size=s["orders"], sizemode="area",
@@ -152,11 +190,11 @@ def figure_scatter(sel):
             unselected=dict(marker=dict(opacity=DIM)),
             showlegend=False,
             hovertemplate=("<b>%{customdata[0]}</b> in <b>%{customdata[1]}</b><br>"
-                           "Avg delivery: %{x:.1f} days<br>Avg review: %{y:.2f} / 5<br>"
+                           + XHOVER[xmode] + "<br>Avg review: %{y:.2f} / 5<br>"
                            "Orders: %{customdata[2]:,}<br>Revenue: R$ %{customdata[3]:,.0f}<extra></extra>"),
         ))
     fig.update_layout(base_layout(margin=dict(l=56, r=16, t=8, b=44)))
-    style_axes(fig, xtitle="Average delivery time (days)", ytitle="Average review score (1-5)")
+    style_axes(fig, xtitle=XTITLE[xmode], ytitle="Average review score (1-5)")
     fig.update_xaxes(showgrid=True, gridcolor=GRID)
     return fig
 
@@ -164,7 +202,7 @@ def figure_scatter(sel):
 def figure_states(sel):
     """View 3: choropleth map of revenue by customer state.
     Colour (sequential single hue, log scale) = revenue; position = geography."""
-    d = apply_filters(df, months=sel["months"], pairs=sel["pairs"])
+    d = apply_filters(df, months=sel["months"], pairs=sel["pairs"], cats=sel["cats"])
     g = (d.groupby("customer_state")
          .agg(revenue=("price", "sum"), orders=("order_id", "nunique")).reset_index())
     g = g[g["revenue"] > 0].reset_index(drop=True)
@@ -211,21 +249,22 @@ def figure_states(sel):
             lon=[LABEL_POS[s][0] for s in codes], lat=[LABEL_POS[s][1] for s in codes],
             text=codes, mode="text", textfont=dict(size=11, color=color),
             hoverinfo="skip", showlegend=False, selectedpoints=[]))
-    fig.update_layout(base_layout(margin=dict(l=0, r=0, t=0, b=0)))
+    fig.update_layout(base_layout(margin=dict(l=0, r=0, t=0, b=0), clickmode="event"))  # click = toggle (callback)
     # "white-bg" = no background tiles, so the map needs no internet access to render.
     fig.update_layout(map=dict(style="white-bg", center=dict(lon=-53.5, lat=-14.5), zoom=2.8))
     return fig
 
 
 # ---------------------------------------------------------------------------- layout
-def panel(title, subtitle, graph_id, cls):
-    """A bordered card (Gestalt enclosure) holding one view."""
+def panel(title, subtitle, graph_id, cls, extra=None, bottom=None):
+    """A bordered card (Gestalt enclosure) holding one view. `extra` = optional header control."""
     return html.Section(className=f"panel {cls}", children=[
-        html.H2(title), html.P(subtitle, className="sub"),
+        html.Div(className="panel-head", children=[html.H2(title)] + ([extra] if extra is not None else [])),
+        html.P(subtitle, className="sub"),
         dcc.Graph(id=graph_id, config={"displaylogo": False, "responsive": True,
                                        "modeBarButtonsToRemove": ["autoScale2d", "lasso2d"]},
-                  style={"height": "100%"}),
-    ])
+                  className="graph", style={"height": "100%"}),
+    ] + ([bottom] if bottom is not None else []))
 
 
 app = Dash(__name__, title="Olist E-Commerce Dashboard")
@@ -240,17 +279,32 @@ app.layout = html.Main(className="page", children=[
             html.Button("Reset selection", id="reset", n_clicks=0, className="btn"),
         ]),
     ]),
-    html.Div(className="legend-row", id="legend"),
+    # Category chips: legend (colour key) AND filter. Click to show only that category in all views.
+    html.Div(className="legend-row", children=[
+        html.Button([html.Span(className="swatch", style={"background": COLORS[c]}), c],
+                    id={"type": "chip", "cat": c}, n_clicks=0, className="chip",
+                    title=f"Show only {c} (click again to remove)")
+        for c in CATEGORIES]),
+    html.P("Click a category to filter all three views (click several to compare). "
+           "\"other\" = every product category outside the top 6 by revenue, plus products with no category.",
+           className="sub note"),
+    html.Div(id="summary", className="summary"),
     panel("1. Monthly revenue by category",
           "Drag horizontally to brush a month range. The other views filter to it.",
-          "v1", "hero"),
+          "v1", "hero",
+          extra=dcc.RadioItems(id="yscale", options=[{"label": "Linear", "value": "linear"},
+                                                     {"label": "Log", "value": "log"}],
+                               value="linear", inline=True, className="toggle")),
     html.Div(className="row", children=[
-        panel("2. Delivery time vs. review score",
+        panel("2. What drives review scores?",
               "One bubble per category and state (5+ orders). Size = orders. Drag to select.",
-              "v2", "half"),
+              "v2", "half",
+              extra=dcc.RadioItems(id="xmode", options=[{"label": "Delivery time", "value": "days"},
+                                                        {"label": "Item price", "value": "price"}],
+                                   value="days", inline=True, className="toggle")),
         panel("3. Revenue by customer state",
-              "Darker = more revenue (log scale). Click a state, shift-click for several, or drag a box.",
-              "v3", "half"),
+              "Darker = more revenue (log scale). Click a state to select it, click again to unselect; drag a box for several.",
+              "v3", "half", bottom=html.Div(id="rank", className="rank")),
     ]),
     dcc.Store(id="sel", data=EMPTY_SEL),
 ])
@@ -270,39 +324,78 @@ def _points(event, key):
 
 
 @app.callback(
-    Output("sel", "data"),
+    Output("sel", "data"), Output("v3", "clickData"),
     Input("v1", "selectedData"), Input("v2", "selectedData"), Input("v3", "selectedData"),
+    Input("v3", "clickData"), Input({"type": "chip", "cat": ALL}, "n_clicks"),
     Input("reset", "n_clicks"), State("sel", "data"),
     prevent_initial_call=True,
 )
-def update_selection(s1, s2, s3, _reset, current):
-    """Record which view the user just brushed; reset clears all three."""
-    who = ctx.triggered_id
-    if who == "reset":
-        return EMPTY_SEL
+def update_selection(s1, s2, s3, click3, _chips, _reset, current):
+    """Record what the user just did; reset clears everything."""
+    prop = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+    if prop == "reset.n_clicks":
+        return EMPTY_SEL, None
     sel = dict(current)
-    if who == "v1":
+    if prop == "v1.selectedData":
         sel["months"] = _points(s1, "x")
-    elif who == "v2":
+    elif prop == "v2.selectedData":
         sel["pairs"] = _points(s2, "pair")
-    elif who == "v3":
+    elif prop == "v3.selectedData":
         sel["states"] = _points(s3, "location")
-    return sel
+    elif prop == "v3.clickData":
+        # A click toggles one state on/off. clickData is then cleared so that clicking the
+        # same state again still fires the callback.
+        if not click3 or not click3.get("points"):
+            return no_update, no_update
+        code = click3["points"][0]["location"]
+        sel["states"] = ([s for s in sel["states"] if s != code] if code in sel["states"]
+                         else sel["states"] + [code])
+        return sel, None
+    elif prop.startswith("{"):                      # a category chip: toggle that category
+        cat = ctx.triggered_id["cat"]
+        sel["cats"] = ([c for c in sel["cats"] if c != cat] if cat in sel["cats"]
+                       else sel["cats"] + [cat])
+    return sel, no_update
+
+
+def summarize(sel):
+    """One-line facts for whatever is currently shown (all active filters applied)."""
+    d = apply_filters(df, sel["months"], sel["pairs"], sel["states"], sel["cats"])
+    if d.empty:
+        return "No orders match the current selection."
+    orders = d.drop_duplicates("order_id")
+    return (f"Showing {orders['order_id'].nunique():,} orders  |  R$ {d['price'].sum():,.0f} revenue  |  "
+            f"avg review {orders['review_score'].mean():.2f} / 5  |  "
+            f"avg delivery {orders['delivery_days'].mean():.1f} days")
+
+
+def ranked_states(sel, n=5):
+    """Ranked list of the top states by revenue under the current filters (fixes map area bias)."""
+    d = apply_filters(df, sel["months"], sel["pairs"], None, sel["cats"])
+    rev = d.groupby("customer_state")["price"].sum().sort_values(ascending=False)
+    if rev.empty:
+        return ""
+    total = rev.sum()
+    items = [html.Span(className="rank-item" + (" on" if s in sel["states"] else ""),
+                       children=f"{i}. {s} {v / total:.0%}")
+             for i, (s, v) in enumerate(rev.head(n).items(), 1)]
+    return [html.Span("Top states by revenue share:", className="rank-label")] + items
 
 
 @app.callback(
     Output("v1", "figure"), Output("v2", "figure"), Output("v3", "figure"),
-    Output("status", "children"), Output("legend", "children"),
-    Input("sel", "data"),
+    Output("status", "children"), Output({"type": "chip", "cat": ALL}, "className"),
+    Output("summary", "children"), Output("rank", "children"),
+    Input("sel", "data"), Input("yscale", "value"), Input("xmode", "value"),
 )
-def render(sel):
+def render(sel, yscale, xmode):
     """Redraw all views from the shared selection state."""
-    n = [len(sel["months"]), len(sel["pairs"]), len(sel["states"])]
-    status = ("No selection - drag on a chart to filter the others" if not any(n) else
-              f"Selected: {n[0]} months, {n[1]} category-state points, {n[2]} states")
-    legend = [html.Span(className="key", children=[
-        html.Span(className="swatch", style={"background": COLORS[c]}), c]) for c in CATEGORIES]
-    return figure_trend(sel), figure_scatter(sel), figure_states(sel), status, legend
+    n = [len(sel["months"]), len(sel["pairs"]), len(sel["states"]), len(sel["cats"])]
+    status = ("No selection - click or drag on a chart to filter the others" if not any(n) else
+              f"Selected: {n[3]} categories, {n[0]} months, {n[1]} category-state points, {n[2]} states")
+    chips = ["chip" + (" on" if c in sel["cats"] else " off" if sel["cats"] else "") for c in CATEGORIES]
+    return (figure_trend(sel, yscale == "log"), figure_scatter(sel, xmode), figure_states(sel),
+            status, chips, summarize(sel), ranked_states(sel))
 
 
 if __name__ == "__main__":
