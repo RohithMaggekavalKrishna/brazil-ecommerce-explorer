@@ -75,7 +75,7 @@ LABEL_POS = {f["id"]: _label_position(f) for f in GEOJSON["features"]}
 # Sequential single-hue ramp, light -> dark (lightness decreases monotonically = greyscale safe).
 REVENUE_RAMP = ["#e8f0fb", "#b4cdf0", "#6fa3e3", "#2a78d6", "#14407a"]
 
-EMPTY_SEL = {"months": [], "pairs": [], "states": [], "cats": []}
+EMPTY_SEL = {"months": [], "pairs": [], "states": [], "cats": [], "rev": 0}   # rev: bumped by Reset
 
 
 # ------------------------------------------------------------------- filtering helpers
@@ -100,7 +100,6 @@ def base_layout(**kw):
         hoverlabel=dict(bgcolor="#ffffff", font=dict(family=FONT["family"], size=12, color="#0b0b0b")),
         legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=11)),
         uirevision="keep",          # keep zoom/brush state when figures are re-rendered
-        transition=dict(duration=300, easing="cubic-in-out"),   # animated updates when filters change
     )
     layout.update(kw)
     return layout
@@ -133,7 +132,7 @@ def figure_trend(sel, log_scale=False):
             hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>Revenue: R$ %{y:,.0f}<extra></extra>",
         ))
     # Explicit axis ranges: stops the end-labels from stretching the x axis, and keeps the y axis
-    # correct when the Linear/Log toggle changes its type during an animated update.
+    # correct when the Linear/Log toggle changes its type.
     allv = g[[c for c in CATEGORIES if g[c].sum() > 0]].to_numpy().ravel() if g.to_numpy().any() else np.array([1.0])
     if log_scale:
         yrange = [float(np.log10(allv[allv > 0].min())) - 0.1, float(np.log10(allv.max())) + 0.1]
@@ -159,7 +158,7 @@ def figure_trend(sel, log_scale=False):
                                font=dict(size=11, color="#0b0b0b"))
     # The chips above the charts are the legend (and the category filter), so no built-in legend.
     fig.update_layout(base_layout(selectdirection="h", showlegend=False, margin=dict(l=56, r=150, t=8, b=44),
-                                  uirevision="log" if log_scale else "linear"))
+                                  uirevision=f'{"log" if log_scale else "linear"}-{sel.get("rev", 0)}'))
     style_axes(fig, ytitle="Revenue (R$, log scale)" if log_scale else "Revenue (R$)")
     fig.update_yaxes(tickformat="~s", type="log" if log_scale else "linear", range=yrange, autorange=False)
     fig.update_xaxes(range=["2016-12-15", "2018-09-15"])
@@ -193,7 +192,7 @@ def figure_scatter(sel, xmode="days"):
                            + XHOVER[xmode] + "<br>Avg review: %{y:.2f} / 5<br>"
                            "Orders: %{customdata[2]:,}<br>Revenue: R$ %{customdata[3]:,.0f}<extra></extra>"),
         ))
-    fig.update_layout(base_layout(margin=dict(l=56, r=16, t=8, b=44)))
+    fig.update_layout(base_layout(margin=dict(l=56, r=16, t=8, b=44), uirevision=f'keep-{sel.get("rev", 0)}'))
     style_axes(fig, xtitle=XTITLE[xmode], ytitle="Average review score (1-5)")
     fig.update_xaxes(showgrid=True, gridcolor=GRID)
     return fig
@@ -249,7 +248,8 @@ def figure_states(sel):
             lon=[LABEL_POS[s][0] for s in codes], lat=[LABEL_POS[s][1] for s in codes],
             text=codes, mode="text", textfont=dict(size=11, color=color),
             hoverinfo="skip", showlegend=False, selectedpoints=[]))
-    fig.update_layout(base_layout(margin=dict(l=0, r=0, t=0, b=0), clickmode="event"))  # click = toggle (callback)
+    fig.update_layout(base_layout(margin=dict(l=0, r=0, t=0, b=0), clickmode="event",
+                                  uirevision=f'keep-{sel.get("rev", 0)}'))  # click = toggle (callback)
     # "white-bg" = no background tiles, so the map needs no internet access to render.
     fig.update_layout(map=dict(style="white-bg", center=dict(lon=-53.5, lat=-14.5), zoom=2.8))
     return fig
@@ -334,7 +334,8 @@ def update_selection(s1, s2, s3, click3, _chips, _reset, current):
     """Record what the user just did; reset clears everything."""
     prop = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
     if prop == "reset.n_clicks":
-        return EMPTY_SEL, None
+        # A new "rev" changes every figure's uirevision, so Plotly also wipes the drawn selection boxes.
+        return dict(EMPTY_SEL, rev=current.get("rev", 0) + 1), None
     sel = dict(current)
     if prop == "v1.selectedData":
         sel["months"] = _points(s1, "x")

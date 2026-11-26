@@ -67,7 +67,7 @@ order (latest), English category names, top 6 categories plus "other", and Jan 2
 | Could not select several states independently | Click toggles a state on or off; Reset clears all |
 | Clicking a scatter point showed a flat zero line for an unrelated category | Categories with no data under the current filters are no longer drawn |
 
-Further additions: animated transitions (300 ms) when filters change; direct end-labels on the line chart; an item-price option on the scatter (price vs satisfaction); a summary line of orders, revenue, average review and delivery time; a ranked top-5 state list under the map to offset the map's area bias; explicit axis ranges so the Linear/Log toggle never leaves a stale axis.
+Further additions: direct end-labels on the line chart; an item-price option on the scatter (price vs satisfaction); a summary line of orders, revenue, average review and delivery time; a ranked top-5 state list under the map to offset the map's area bias; explicit axis ranges so the Linear/Log toggle never leaves a stale axis.
 
 ## Known gaps (planned for the final)
 
